@@ -19,15 +19,11 @@ import { Review } from './orders/review.entity';
 
 @Module({
   imports: [
-    // Em alguns ambientes (ex.: Windows rodando dentro da pasta "api"), o `.env`
-    // pode não estar no `process.cwd()`. Tentamos carregar de locais comuns.
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [
         resolve(process.cwd(), '.env'),
-        // quando executa a partir de `dist`, normalmente: dist/.. -> raiz do projeto
         resolve(__dirname, '..', '..', '.env'),
-        // fallback extra (ex.: monorepo / pasta pai)
         resolve(__dirname, '..', '..', '..', '.env'),
       ],
     }),
@@ -35,18 +31,52 @@ import { Review } from './orders/review.entity';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (cfg: ConfigService) => ({
-        type: 'postgres',
-        host: cfg.get('DB_HOST'),
-        port: Number(cfg.get('DB_PORT')),
-        username: cfg.get('DB_USER'),
-        // O driver `pg` exige string; se vier undefined (env não carregado), dá erro de SASL.
-        password: String(cfg.get('DB_PASS') ?? ''),
-        database: cfg.get('DB_NAME'),
-        entities: [User, ProviderProfile, Category, ProviderCategory, Order, Message, Review],
-        synchronize: true, // MVP. Produção: migrations
-        logging: false,
-      }),
+      useFactory: (cfg: ConfigService) => {
+        const databaseUrl = cfg.get<string>('DATABASE_URL');
+
+        // 🔥 SE ESTIVER NO RENDER -> USA DATABASE_URL
+        if (databaseUrl) {
+          return {
+            type: 'postgres',
+            url: databaseUrl,
+            ssl: {
+              rejectUnauthorized: false,
+            },
+            entities: [
+              User,
+              ProviderProfile,
+              Category,
+              ProviderCategory,
+              Order,
+              Message,
+              Review,
+            ],
+            synchronize: true,
+            logging: false,
+          };
+        }
+
+        // 🔥 SE ESTIVER LOCAL -> USA VARIÁVEIS ANTIGAS
+        return {
+          type: 'postgres',
+          host: cfg.get('DB_HOST'),
+          port: Number(cfg.get('DB_PORT')),
+          username: cfg.get('DB_USER'),
+          password: String(cfg.get('DB_PASS') ?? ''),
+          database: cfg.get('DB_NAME'),
+          entities: [
+            User,
+            ProviderProfile,
+            Category,
+            ProviderCategory,
+            Order,
+            Message,
+            Review,
+          ],
+          synchronize: true,
+          logging: false,
+        };
+      },
     }),
 
     AuthModule,
