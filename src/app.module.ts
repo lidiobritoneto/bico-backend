@@ -17,6 +17,8 @@ import { Order } from './orders/order.entity';
 import { Message } from './chat/message.entity';
 import { Review } from './orders/review.entity';
 
+import { HealthController } from './health.controller';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -32,47 +34,59 @@ import { Review } from './orders/review.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (cfg: ConfigService) => {
-        const databaseUrl = cfg.get<string>('DATABASE_URL');
+        // Render costuma usar DATABASE_URL (e às vezes algo como DATABASE_URL_INTERNAL)
+        const databaseUrl =
+          cfg.get<string>('DATABASE_URL') ||
+          cfg.get<string>('DATABASE_URL_INTERNAL') ||
+          cfg.get<string>('DATABASE_PUBLIC_URL');
 
-        // 🔥 SE ESTIVER NO RENDER -> USA DATABASE_URL
+        const entities = [
+          User,
+          ProviderProfile,
+          Category,
+          ProviderCategory,
+          Order,
+          Message,
+          Review,
+        ];
+
+        // ✅ Se tiver DATABASE_URL, usa URL (Render / produção)
         if (databaseUrl) {
+          const shouldUseSsl =
+            cfg.get<string>('DB_SSL') === 'true' ||
+            cfg.get<string>('NODE_ENV') === 'production' ||
+            cfg.get<string>('RENDER') === 'true';
+
+          console.log('[DB] Using DATABASE_URL (Render/Prod). SSL:', shouldUseSsl);
+
           return {
-            type: 'postgres',
+            type: 'postgres' as const,
             url: databaseUrl,
-            ssl: {
-              rejectUnauthorized: false,
-            },
-            entities: [
-              User,
-              ProviderProfile,
-              Category,
-              ProviderCategory,
-              Order,
-              Message,
-              Review,
-            ],
-            synchronize: true,
+            // SSL só se necessário (na prática, Render geralmente precisa)
+            ssl: shouldUseSsl ? { rejectUnauthorized: false } : false,
+            entities,
+            synchronize: true, // MVP. Produção ideal: migrations
             logging: false,
           };
         }
 
-        // 🔥 SE ESTIVER LOCAL -> USA VARIÁVEIS ANTIGAS
+        // ✅ Local (vars antigas)
+        const host = cfg.get<string>('DB_HOST') || 'localhost';
+        const port = Number(cfg.get<string>('DB_PORT') || 5432);
+        const username = cfg.get<string>('DB_USER') || 'postgres';
+        const password = String(cfg.get<string>('DB_PASS') ?? '');
+        const database = cfg.get<string>('DB_NAME') || 'postgres';
+
+        console.log('[DB] Using local env vars:', { host, port, username, database });
+
         return {
-          type: 'postgres',
-          host: cfg.get('DB_HOST'),
-          port: Number(cfg.get('DB_PORT')),
-          username: cfg.get('DB_USER'),
-          password: String(cfg.get('DB_PASS') ?? ''),
-          database: cfg.get('DB_NAME'),
-          entities: [
-            User,
-            ProviderProfile,
-            Category,
-            ProviderCategory,
-            Order,
-            Message,
-            Review,
-          ],
+          type: 'postgres' as const,
+          host,
+          port,
+          username,
+          password,
+          database,
+          entities,
           synchronize: true,
           logging: false,
         };
@@ -85,5 +99,8 @@ import { Review } from './orders/review.entity';
     OrdersModule,
     ChatModule,
   ],
+
+  // ✅ Aqui estava faltando no seu arquivo
+  controllers: [HealthController],
 })
 export class AppModule {}
